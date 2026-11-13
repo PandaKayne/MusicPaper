@@ -1,0 +1,33 @@
+name: Descomprimir zip
+on:
+  push:
+    branches: [main]
+    paths: ['*.zip']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Descomprimir y subir
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          ZIP=$(ls *.zip | head -n 1)
+          mkdir /tmp/x
+          unzip -q "$ZIP" -d /tmp/x
+          SRC=/tmp/x
+          [ -d /tmp/x/MusicPaper ] && SRC=/tmp/x/MusicPaper
+          rm -rf "$SRC/.github"
+          cp -a "$SRC"/. .
+          git rm -q "$ZIP"
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "Descomprimir $ZIP"
+          git push
+          gh workflow run build.yml
