@@ -62,6 +62,31 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("bgBlur", true)
         set(v) { sp.edit().putBoolean("bgBlur", v).apply() }
 
+    /** Horario de descanso: en esas horas no se cambia el fondo ni se anima el CD. */
+    var quietEnabled: Boolean
+        get() = sp.getBoolean("quietEnabled", false)
+        set(v) { sp.edit().putBoolean("quietEnabled", v).apply() }
+
+    var quietStart: Int
+        get() = sp.getInt("quietStart", 23)
+        set(v) { sp.edit().putInt("quietStart", v).apply() }
+
+    var quietEnd: Int
+        get() = sp.getInt("quietEnd", 7)
+        set(v) { sp.edit().putInt("quietEnd", v).apply() }
+
+    fun isQuietNow(): Boolean {
+        if (!quietEnabled) return false
+        val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val s = quietStart
+        val e = quietEnd
+        return when {
+            s == e -> false
+            s < e -> h >= s && h < e
+            else -> h >= s || h < e      // cruza la medianoche, p. ej. 23 a 7
+        }
+    }
+
     var blur: Int
         get() = sp.getInt("blur", 80)
         set(v) { sp.edit().putInt("blur", v).apply() }

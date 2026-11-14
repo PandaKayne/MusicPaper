@@ -99,6 +99,9 @@ fun MainScreen(tick: Int) {
     var showPicker by remember { mutableStateOf(false) }
     var showHelp by remember { mutableStateOf(prefs.showHelp) }
     var bgBlur by remember { mutableStateOf(prefs.bgBlur) }
+    var quietOn by remember { mutableStateOf(prefs.quietEnabled) }
+    var quietStart by remember { mutableFloatStateOf(prefs.quietStart.toFloat()) }
+    var quietEnd by remember { mutableFloatStateOf(prefs.quietEnd.toFloat()) }
     var refresh by remember { mutableIntStateOf(0) }
 
     val listenerOn = remember(tick) {
@@ -316,6 +319,33 @@ fun MainScreen(tick: Int) {
             "Reproduce una canción y pulsa «Aplicar ahora» para ver los cambios. Código abierto (MIT).",
             style = MaterialTheme.typography.bodySmall
         )
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Horario de descanso", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "En ese horario no cambia el fondo ni se anima el CD.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(checked = quietOn, onCheckedChange = { quietOn = it; prefs.quietEnabled = it })
+                }
+                if (quietOn) {
+                    LabeledSlider("Desde las (hora)", quietStart, 0f..23f, { quietStart = it }) {
+                        prefs.quietStart = quietStart.toInt()
+                    }
+                    LabeledSlider("Hasta las (hora)", quietEnd, 0f..23f, { quietEnd = it }) {
+                        prefs.quietEnd = quietEnd.toInt()
+                    }
+                    Text(
+                        "Ahora mismo: " + if (prefs.isQuietNow()) "en descanso" else "activo",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

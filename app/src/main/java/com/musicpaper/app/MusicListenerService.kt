@@ -146,6 +146,11 @@ class MusicListenerService : NotificationListenerService() {
         val prefs = Prefs(this)
         if (!prefs.enabled) return
         if (!isAllowed(c, prefs.apps)) return
+        if (prefs.isQuietNow()) {
+            LiveCdWallpaperService.markPlaying(false)
+            prefs.putDiag("result", "horario de descanso (sin cambios) ${now()}")
+            return
+        }
 
         if (isPlaying(c)) {
             main.removeCallbacks(restoreTask)
