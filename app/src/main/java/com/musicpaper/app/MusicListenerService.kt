@@ -149,7 +149,7 @@ class MusicListenerService : NotificationListenerService() {
 
         if (isPlaying(c)) {
             main.removeCallbacks(restoreTask)
-            LiveCdWallpaperService.setPlaying(true)
+            LiveCdWallpaperService.markPlaying(true)
             val md = c.metadata ?: return
             val title = md.getString(MediaMetadata.METADATA_KEY_TITLE)
             val artist = md.getString(MediaMetadata.METADATA_KEY_ARTIST)
@@ -189,7 +189,7 @@ class MusicListenerService : NotificationListenerService() {
                 }
             }
         } else if (!anyPlaying()) {
-            LiveCdWallpaperService.setPlaying(false)
+            LiveCdWallpaperService.markPlaying(false)
             if (applied) {
                 main.removeCallbacks(restoreTask)
                 main.postDelayed(restoreTask, prefs.restoreDelay * 1000L)

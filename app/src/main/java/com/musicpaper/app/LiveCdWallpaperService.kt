@@ -137,7 +137,7 @@ class LiveCdWallpaperService : WallpaperService() {
         @Volatile
         var playing = false
 
-        fun setPlaying(p: Boolean) {
+        fun markPlaying(p: Boolean) {
             if (playing == p) return
             playing = p
             notifyChanged()
