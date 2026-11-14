@@ -14,6 +14,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -77,6 +84,10 @@ fun MainScreen(tick: Int) {
     var effect by remember { mutableStateOf(prefs.effect) }
     var blur by remember { mutableFloatStateOf(prefs.blur.toFloat()) }
     var darken by remember { mutableFloatStateOf(prefs.darken.toFloat()) }
+    var showArt by remember { mutableStateOf(prefs.showArt) }
+    var artSize by remember { mutableFloatStateOf(prefs.artSize.toFloat()) }
+    var artX by remember { mutableFloatStateOf(prefs.artX.toFloat()) }
+    var artY by remember { mutableFloatStateOf(prefs.artY.toFloat()) }
     var delay by remember { mutableFloatStateOf(prefs.restoreDelay.toFloat()) }
     var hasRestore by remember { mutableStateOf(WallpaperApplier.hasRestoreImage(ctx)) }
     var showPicker by remember { mutableStateOf(false) }
@@ -86,6 +97,14 @@ fun MainScreen(tick: Int) {
     }
     val batteryOk = remember(tick) {
         ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
+    }
+
+    val version = remember {
+        try {
+            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: ""
+        } catch (e: Exception) {
+            ""
+        }
     }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -140,7 +159,7 @@ fun MainScreen(tick: Int) {
 
                 Text("Efecto")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Blur + álbum" to Prefs.EFFECT_COMBO, "Blur" to Prefs.EFFECT_BLUR, "Cover" to Prefs.EFFECT_COVER)
+                    listOf("Blur" to Prefs.EFFECT_BLUR, "Cover" to Prefs.EFFECT_COVER)
                         .forEach { (label, value) ->
                             FilterChip(
                                 selected = effect == value,
@@ -152,6 +171,28 @@ fun MainScreen(tick: Int) {
 
                 if (effect != Prefs.EFFECT_COVER) {
                     LabeledSlider("Desenfoque", blur, 0f..100f, { blur = it }) { prefs.blur = blur.toInt() }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Mostrar álbum nítido encima", Modifier.weight(1f))
+                        Switch(checked = showArt, onCheckedChange = { showArt = it; prefs.showArt = it })
+                    }
+                    if (showArt) {
+                        LabeledSlider("Tamaño del álbum (%)", artSize, 30f..100f, { artSize = it }) {
+                            prefs.artSize = artSize.toInt()
+                        }
+                        Text("Arrastra el cuadro para colocar el álbum", style = MaterialTheme.typography.bodySmall)
+                        ArtPositionPreview(
+                            x = artX,
+                            y = artY,
+                            size = artSize,
+                            onMove = { nx, ny -> artX = nx; artY = ny },
+                            onDone = { prefs.artX = artX.toInt(); prefs.artY = artY.toInt() }
+                        )
+                        TextButton(onClick = {
+                            artX = 50f; artY = 50f
+                            prefs.artX = 50; prefs.artY = 50
+                        }) { Text("Centrar") }
+                    }
                 }
                 LabeledSlider("Oscurecer", darken, 0f..100f, { darken = it }) { prefs.darken = darken.toInt() }
                 LabeledSlider("Restaurar tras pausa (s)", delay, 0f..60f, { delay = it }) {
@@ -193,6 +234,8 @@ fun MainScreen(tick: Int) {
             "Reproduce una canción y pulsa «Aplicar ahora» para ver los cambios. Código abierto (MIT).",
             style = MaterialTheme.typography.bodySmall
         )
+
+        Text("MusicPaper v$version", style = MaterialTheme.typography.bodySmall)
     }
 
     if (showPicker) {
@@ -201,6 +244,57 @@ fun MainScreen(tick: Int) {
             onDismiss = { showPicker = false },
             onSave = { apps = it; prefs.apps = it; showPicker = false }
         )
+    }
+}
+
+@Composable
+private fun ArtPositionPreview(
+    x: Float,
+    y: Float,
+    size: Float,
+    onMove: (Float, Float) -> Unit,
+    onDone: () -> Unit
+) {
+    val ctx = LocalContext.current
+    val density = LocalDensity.current
+    val dm = ctx.resources.displayMetrics
+    val ratio = dm.heightPixels.toFloat() / dm.widthPixels.toFloat()
+    val pw = 180.dp
+    val pwPx = with(density) { pw.toPx() }
+    val phPx = pwPx * ratio
+    val ph = with(density) { phPx.toDp() }
+    val curX by rememberUpdatedState(x)
+    val curY by rememberUpdatedState(y)
+    val side = pwPx * size / 100f
+    val left = (x / 100f * pwPx - side / 2f).coerceIn(0f, (pwPx - side).coerceAtLeast(0f))
+    val top = (y / 100f * phPx - side / 2f).coerceIn(0f, (phPx - side).coerceAtLeast(0f))
+
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(pw, ph)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .pointerInput(Unit) {
+                    detectDragGestures(onDragEnd = onDone, onDragCancel = onDone) { change, drag ->
+                        change.consume()
+                        onMove(
+                            (curX + drag.x / pwPx * 100f).coerceIn(0f, 100f),
+                            (curY + drag.y / phPx * 100f).coerceIn(0f, 100f)
+                        )
+                    }
+                }
+        ) {
+            Box(
+                Modifier
+                    .offset { IntOffset(left.toInt(), top.toInt()) }
+                    .size(with(density) { side.toDp() })
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primary)
+            ) {
+                Text("♪", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onPrimary)
+            }
+        }
     }
 }
 

@@ -45,21 +45,14 @@ object WallpaperApplier {
         val (w, h) = screenSize(ctx)
         val art = softwareCopy(source)
 
-        val out = when (prefs.effect) {
-            Prefs.EFFECT_COVER -> {
-                val c = centerCrop(art, w, h)
-                if (prefs.darken > 0) darken(c, prefs.darken) else c
-            }
-            Prefs.EFFECT_COMBO -> {
-                // Fondo desenfocado + carátula nítida y grande al centro
-                var bg = blurred(art, w, h, prefs.blur)
-                if (prefs.darken > 0) bg = darken(bg, prefs.darken)
-                withSharpArt(bg, art)
-            }
-            else -> {
-                val b = blurred(art, w, h, prefs.blur)
-                if (prefs.darken > 0) darken(b, prefs.darken) else b
-            }
+        val out = if (prefs.effect == Prefs.EFFECT_COVER) {
+            val c = centerCrop(art, w, h)
+            if (prefs.darken > 0) darken(c, prefs.darken) else c
+        } else {
+            // Fondo desenfocado; la carátula nítida va encima si está activada
+            var bg = blurred(art, w, h, prefs.blur)
+            if (prefs.darken > 0) bg = darken(bg, prefs.darken)
+            if (prefs.showArt) withSharpArt(bg, art, prefs) else bg
         }
 
         setWallpaper(WallpaperManager.getInstance(ctx), out, prefs.target)
@@ -145,14 +138,16 @@ object WallpaperApplier {
 
 
     /** Dibuja la carátula en calidad completa, cuadrada, con esquinas redondeadas y sombra. */
-    private fun withSharpArt(bg: Bitmap, art: Bitmap): Bitmap {
+    private fun withSharpArt(bg: Bitmap, art: Bitmap, prefs: Prefs): Bitmap {
         val out = if (bg.isMutable) bg else bg.copy(Bitmap.Config.ARGB_8888, true)
         val w = out.width
         val h = out.height
-        val side = (min(w, h) * 0.88f).toInt()
+        val side = (w * prefs.artSize.coerceIn(30, 100) / 100f).toInt().coerceAtMost(min(w, h))
         val sq = squareScaled(art, side)
-        val left = (w - side) / 2f
-        val top = (h - side) / 2f + h * 0.02f
+        val cx = w * prefs.artX.coerceIn(0, 100) / 100f
+        val cy = h * prefs.artY.coerceIn(0, 100) / 100f
+        val left = (cx - side / 2f).coerceIn(0f, (w - side).coerceAtLeast(0).toFloat())
+        val top = (cy - side / 2f).coerceIn(0f, (h - side).coerceAtLeast(0).toFloat())
         val radius = side * 0.05f
         val rect = RectF(left, top, left + side, top + side)
         val canvas = Canvas(out)

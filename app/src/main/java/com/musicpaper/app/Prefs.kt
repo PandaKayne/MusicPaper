@@ -20,8 +20,30 @@ class Prefs(context: Context) {
         set(v) { sp.edit().putInt("target", v).apply() }
 
     var effect: String
-        get() = sp.getString("effect", EFFECT_COMBO) ?: EFFECT_COMBO
+        get() {
+            val v = sp.getString("effect", EFFECT_BLUR) ?: EFFECT_BLUR
+            return if (v == EFFECT_COMBO) EFFECT_BLUR else v   // "combo" era la versión anterior
+        }
         set(v) { sp.edit().putString("effect", v).apply() }
+
+    /** Dibuja la carátula nítida encima del fondo desenfocado. */
+    var showArt: Boolean
+        get() = sp.getBoolean("showArt", true)
+        set(v) { sp.edit().putBoolean("showArt", v).apply() }
+
+    /** Tamaño de la carátula, % del ancho de pantalla (30..100). */
+    var artSize: Int
+        get() = sp.getInt("artSize", 88)
+        set(v) { sp.edit().putInt("artSize", v).apply() }
+
+    /** Posición del centro de la carátula, % del ancho y del alto (0..100). */
+    var artX: Int
+        get() = sp.getInt("artX", 50)
+        set(v) { sp.edit().putInt("artX", v).apply() }
+
+    var artY: Int
+        get() = sp.getInt("artY", 52)
+        set(v) { sp.edit().putInt("artY", v).apply() }
 
     var blur: Int
         get() = sp.getInt("blur", 80)
