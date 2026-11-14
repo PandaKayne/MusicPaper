@@ -45,6 +45,18 @@ class Prefs(context: Context) {
         get() = sp.getInt("artY", 52)
         set(v) { sp.edit().putInt("artY", v).apply() }
 
+    /** Muestra la sección opcional de ayuda con ajustes del teléfono. */
+    var showHelp: Boolean
+        get() = sp.getBoolean("showHelp", false)
+        set(v) { sp.edit().putBoolean("showHelp", v).apply() }
+
+    /** Datos de diagnóstico que escribe el servicio y lee la pantalla "Estado". */
+    fun getDiag(key: String): String = sp.getString("diag_$key", "") ?: ""
+
+    fun putDiag(key: String, value: String) {
+        sp.edit().putString("diag_$key", value).apply()
+    }
+
     var blur: Int
         get() = sp.getInt("blur", 80)
         set(v) { sp.edit().putInt("blur", v).apply() }
@@ -64,5 +76,9 @@ class Prefs(context: Context) {
         const val EFFECT_BLUR = "blur"
         const val EFFECT_COVER = "cover"
         const val EFFECT_COMBO = "combo"
+        const val EFFECT_CD = "cd"
+        const val EFFECT_SQUARE = "square"
+        const val EFFECT_GLASS = "glass"
+        const val EFFECT_CD_SPIN = "cdspin"
     }
 }

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">MusicPaper</string>
+    <string name="live_description">CD giratorio con la carátula de tu música</string>
 </resources>

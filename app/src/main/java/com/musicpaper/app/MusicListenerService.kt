@@ -1,8 +1,12 @@
 package com.musicpaper.app
 
+import android.app.Notification
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSession
@@ -12,13 +16,18 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
 import android.util.Log
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
  * Escucha las sesiones de medios activas (Spotify, etc.). Cuando una app de música
  * empieza a reproducir, toma la carátula y la pone como fondo. Al pausar, restaura.
+ * Escribe un pequeño diagnóstico (pantalla "Estado") para saber qué pasa en cada teléfono.
  */
 class MusicListenerService : NotificationListenerService() {
 
@@ -42,16 +51,19 @@ class MusicListenerService : NotificationListenerService() {
                     WallpaperApplier.restore(applicationContext)
                     lastKey = null
                     applied = false
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e(TAG, "No se pudo restaurar el fondo", e)
                 }
             }
         }
     }
 
+    private fun now(): String = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         instance = this
+        Prefs(this).putDiag("listener", "conectado ${now()}")
         try {
             val msm = getSystemService(MediaSessionManager::class.java)
             val cn = ComponentName(this, MusicListenerService::class.java)
@@ -59,11 +71,13 @@ class MusicListenerService : NotificationListenerService() {
             sync(msm.getActiveSessions(cn))
         } catch (e: SecurityException) {
             Log.e(TAG, "Sin acceso a notificaciones", e)
+            Prefs(this).putDiag("listener", "sin permiso ${now()}")
         }
     }
 
     override fun onListenerDisconnected() {
         instance = null
+        Prefs(this).putDiag("listener", "desconectado ${now()}")
         try {
             getSystemService(MediaSessionManager::class.java)
                 .removeOnActiveSessionsChangedListener(sessionsListener)
@@ -118,12 +132,14 @@ class MusicListenerService : NotificationListenerService() {
     private fun isAllowed(c: MediaController, allowed: Set<String>) =
         allowed.isEmpty() || c.packageName in allowed
 
+    private fun isPlaying(c: MediaController): Boolean {
+        val st = c.playbackState?.state
+        return st == PlaybackState.STATE_PLAYING || st == PlaybackState.STATE_BUFFERING
+    }
+
     private fun anyPlaying(): Boolean {
         val allowed = Prefs(this).apps
-        return tracked.values.any {
-            isAllowed(it.controller, allowed) &&
-                it.controller.playbackState?.state == PlaybackState.STATE_PLAYING
-        }
+        return tracked.values.any { isAllowed(it.controller, allowed) && isPlaying(it.controller) }
     }
 
     private fun evaluate(c: MediaController) {
@@ -131,31 +147,53 @@ class MusicListenerService : NotificationListenerService() {
         if (!prefs.enabled) return
         if (!isAllowed(c, prefs.apps)) return
 
-        if (c.playbackState?.state == PlaybackState.STATE_PLAYING) {
+        if (isPlaying(c)) {
             main.removeCallbacks(restoreTask)
+            LiveCdWallpaperService.setPlaying(true)
             val md = c.metadata ?: return
+            val title = md.getString(MediaMetadata.METADATA_KEY_TITLE)
+            val artist = md.getString(MediaMetadata.METADATA_KEY_ARTIST)
+                ?: md.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             val key = listOf(
                 c.packageName,
-                md.getString(MediaMetadata.METADATA_KEY_TITLE),
-                md.getString(MediaMetadata.METADATA_KEY_ARTIST),
+                title,
+                artist,
                 md.getString(MediaMetadata.METADATA_KEY_ALBUM)
             ).joinToString("|")
+            prefs.putDiag("track", "${c.packageName} · ${title ?: "?"}")
             if (key == lastKey) return
 
+            val pkg = c.packageName
             worker.execute {
                 if (key == lastKey) return@execute
                 try {
-                    val art = extractArt(md) ?: return@execute
-                    WallpaperApplier.applyArt(applicationContext, art)
+                    var origin = "metadatos"
+                    var art = extractArt(md)
+                    if (art == null) {
+                        origin = "notificación"
+                        art = artFromNotification(pkg)
+                    }
+                    if (art == null) {
+                        prefs.putDiag("art", "esta app no entrega carátula")
+                        prefs.putDiag("result", "sin carátula ${now()}")
+                        return@execute
+                    }
+                    prefs.putDiag("art", "${art.width}x${art.height} vía $origin")
+                    WallpaperApplier.applyArt(applicationContext, art, title, artist)
                     lastKey = key
                     applied = true
-                } catch (e: Exception) {
+                    prefs.putDiag("result", "OK ${now()}")
+                } catch (e: Throwable) {
                     Log.e(TAG, "No se pudo aplicar el fondo", e)
+                    prefs.putDiag("result", "Error: ${e.javaClass.simpleName} ${(e.message ?: "").take(80)} ${now()}")
                 }
             }
-        } else if (applied && !anyPlaying()) {
-            main.removeCallbacks(restoreTask)
-            main.postDelayed(restoreTask, prefs.restoreDelay * 1000L)
+        } else if (!anyPlaying()) {
+            LiveCdWallpaperService.setPlaying(false)
+            if (applied) {
+                main.removeCallbacks(restoreTask)
+                main.postDelayed(restoreTask, prefs.restoreDelay * 1000L)
+            }
         }
     }
 
@@ -185,6 +223,45 @@ class MusicListenerService : NotificationListenerService() {
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Plan B: muchas apps no ponen la carátula en los metadatos pero sí en su
+     * notificación de reproducción. Como somos un servicio de notificaciones, la leemos de ahí.
+     */
+    private fun artFromNotification(pkg: String): Bitmap? {
+        try {
+            val list: Array<StatusBarNotification> = activeNotifications ?: return null
+            for (sbn in list) {
+                if (sbn.packageName != pkg) continue
+                val n = sbn.notification
+                val icon = n.getLargeIcon()
+                if (icon != null) {
+                    val d = icon.loadDrawable(this)
+                    if (d != null) return drawableToBitmap(d)
+                }
+                @Suppress("DEPRECATION")
+                val big = n.extras?.getParcelable<Bitmap>(Notification.EXTRA_LARGE_ICON)
+                if (big != null) return big
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudo leer la notificación", e)
+        }
+        return null
+    }
+
+    private fun drawableToBitmap(d: Drawable): Bitmap {
+        if (d is BitmapDrawable) {
+            val b = d.bitmap
+            if (b != null) return b
+        }
+        val w = d.intrinsicWidth.coerceAtLeast(1)
+        val h = d.intrinsicHeight.coerceAtLeast(1)
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        d.setBounds(0, 0, w, h)
+        d.draw(canvas)
+        return out
     }
 
     companion object {

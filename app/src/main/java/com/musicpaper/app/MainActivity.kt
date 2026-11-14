@@ -1,5 +1,6 @@
 package com.musicpaper.app
 
+import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -8,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,6 +24,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -55,6 +59,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        val granted = NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+        if (granted && MusicListenerService.instance == null) rebindListener(this)
         tick++
     }
 }
@@ -91,6 +97,8 @@ fun MainScreen(tick: Int) {
     var delay by remember { mutableFloatStateOf(prefs.restoreDelay.toFloat()) }
     var hasRestore by remember { mutableStateOf(WallpaperApplier.hasRestoreImage(ctx)) }
     var showPicker by remember { mutableStateOf(false) }
+    var showHelp by remember { mutableStateOf(prefs.showHelp) }
+    var refresh by remember { mutableIntStateOf(0) }
 
     val listenerOn = remember(tick) {
         NotificationManagerCompat.getEnabledListenerPackages(ctx).contains(ctx.packageName)
@@ -98,6 +106,13 @@ fun MainScreen(tick: Int) {
     val batteryOk = remember(tick) {
         ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
     }
+
+    val liveOn = remember(tick) { LiveCdWallpaperService.isActive(ctx) }
+    val svcOn = remember(tick, refresh) { MusicListenerService.instance != null }
+    val dListener = remember(tick, refresh) { prefs.getDiag("listener") }
+    val dTrack = remember(tick, refresh) { prefs.getDiag("track") }
+    val dArt = remember(tick, refresh) { prefs.getDiag("art") }
+    val dResult = remember(tick, refresh) { prefs.getDiag("result") }
 
     val version = remember {
         try {
@@ -120,16 +135,42 @@ fun MainScreen(tick: Int) {
         Text("MusicPaper", style = MaterialTheme.typography.headlineMedium)
         Text("La carátula de tu música como fondo de pantalla.")
 
+        if (!listenerOn) {
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Primero: activa el permiso", style = MaterialTheme.typography.titleMedium)
+                    Text("MusicPaper solo mira qué canción suena en tus apps de música. Android lo llama «acceso a notificaciones».")
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        Text(
+                            "Si el interruptor sale gris o dice «ajustes restringidos», es normal en apps instaladas fuera de la tienda. No es un virus. Haz esto:"
+                        )
+                        Text(
+                            "1. Toca «Abrir Info de la app».\n" +
+                                "2. Toca ⋮ (arriba a la derecha) y elige «Permitir ajustes restringidos».\n" +
+                                "3. Vuelve aquí y toca «Activar acceso a notificaciones»."
+                        )
+                        Text(
+                            "¿No ves el ⋮? Toca primero «Activar acceso a notificaciones», acepta el aviso y repite el paso 1.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Button(onClick = { openAppDetails(ctx) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("1. Abrir Info de la app")
+                        }
+                    }
+                    Button(onClick = { openListenerSettings(ctx) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (Build.VERSION.SDK_INT >= 33) "3. Activar acceso a notificaciones" else "Activar acceso a notificaciones")
+                    }
+                }
+            }
+        }
+
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Permisos", style = MaterialTheme.typography.titleMedium)
                 PermissionRow("Acceso a notificaciones", listenerOn) { openListenerSettings(ctx) }
-                if (!listenerOn) {
-                    Text(
-                        "Si el interruptor sale gris (Android 13+): Info de la app → ⋮ → Permitir ajustes restringidos.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
                 PermissionRow("Sin ahorro de batería", batteryOk) { requestIgnoreBattery(ctx) }
             }
         }
@@ -158,43 +199,75 @@ fun MainScreen(tick: Int) {
                 }
 
                 Text("Efecto")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Blur" to Prefs.EFFECT_BLUR, "Cover" to Prefs.EFFECT_COVER)
-                        .forEach { (label, value) ->
-                            FilterChip(
-                                selected = effect == value,
-                                onClick = { effect = value; prefs.effect = value },
-                                label = { Text(label) }
-                            )
-                        }
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "Blur" to Prefs.EFFECT_BLUR,
+                        "Cover" to Prefs.EFFECT_COVER,
+                        "CD" to Prefs.EFFECT_CD,
+                        "Cuadrado" to Prefs.EFFECT_SQUARE,
+                        "Glass Card" to Prefs.EFFECT_GLASS,
+                        "CD giratorio" to Prefs.EFFECT_CD_SPIN
+                    ).forEach { (label, value) ->
+                        FilterChip(
+                            selected = effect == value,
+                            onClick = { effect = value; prefs.effect = value },
+                            label = { Text(label) }
+                        )
+                    }
                 }
 
-                if (effect != Prefs.EFFECT_COVER) {
-                    LabeledSlider("Desenfoque", blur, 0f..100f, { blur = it }) { prefs.blur = blur.toInt() }
+                val usesBlur = effect == Prefs.EFFECT_BLUR || effect == Prefs.EFFECT_GLASS
+                val hasObject = effect != Prefs.EFFECT_COVER && (effect != Prefs.EFFECT_BLUR || showArt)
+                val circle = effect == Prefs.EFFECT_CD || effect == Prefs.EFFECT_CD_SPIN
 
+                if (usesBlur) {
+                    LabeledSlider("Desenfoque", blur, 0f..100f, { blur = it }) { prefs.blur = blur.toInt() }
+                }
+                if (effect == Prefs.EFFECT_BLUR) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Mostrar álbum nítido encima", Modifier.weight(1f))
                         Switch(checked = showArt, onCheckedChange = { showArt = it; prefs.showArt = it })
                     }
-                    if (showArt) {
-                        LabeledSlider("Tamaño del álbum (%)", artSize, 30f..100f, { artSize = it }) {
-                            prefs.artSize = artSize.toInt()
-                        }
-                        Text("Arrastra el cuadro para colocar el álbum", style = MaterialTheme.typography.bodySmall)
-                        ArtPositionPreview(
-                            x = artX,
-                            y = artY,
-                            size = artSize,
-                            onMove = { nx, ny -> artX = nx; artY = ny },
-                            onDone = { prefs.artX = artX.toInt(); prefs.artY = artY.toInt() }
-                        )
-                        TextButton(onClick = {
-                            artX = 50f; artY = 50f
-                            prefs.artX = 50; prefs.artY = 50
-                        }) { Text("Centrar") }
-                    }
                 }
-                LabeledSlider("Oscurecer", darken, 0f..100f, { darken = it }) { prefs.darken = darken.toInt() }
+                if (hasObject) {
+                    LabeledSlider("Tamaño (%)", artSize, 30f..100f, { artSize = it }) {
+                        prefs.artSize = artSize.toInt()
+                    }
+                    Text("Arrastra el cuadro para colocarlo", style = MaterialTheme.typography.bodySmall)
+                    ArtPositionPreview(
+                        x = artX,
+                        y = artY,
+                        size = artSize,
+                        circle = circle,
+                        onMove = { nx, ny -> artX = nx; artY = ny },
+                        onDone = { prefs.artX = artX.toInt(); prefs.artY = artY.toInt() }
+                    )
+                    TextButton(onClick = {
+                        artX = 50f; artY = 50f
+                        prefs.artX = 50; prefs.artY = 50
+                    }) { Text("Centrar") }
+                }
+
+                if (effect == Prefs.EFFECT_CD_SPIN) {
+                    Text("CD giratorio usa un papel tapiz animado.", style = MaterialTheme.typography.titleSmall)
+                    if (liveOn) {
+                        Text("✓ Papel tapiz animado activo. El CD gira mientras suena la música.")
+                    } else {
+                        Text("El papel tapiz animado no está activo: el CD no se verá hasta activarlo.")
+                        Button(onClick = { openLiveWallpaper(ctx) }) { Text("Activar papel tapiz animado") }
+                    }
+                    Text(
+                        "Con este efecto «Aplicar en» no cuenta: tu teléfono decide si va en bloqueo, inicio o ambas al activarlo.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                if (effect == Prefs.EFFECT_BLUR || effect == Prefs.EFFECT_COVER || effect == Prefs.EFFECT_GLASS) {
+                    LabeledSlider("Oscurecer", darken, 0f..100f, { darken = it }) { prefs.darken = darken.toInt() }
+                }
                 LabeledSlider("Restaurar tras pausa (s)", delay, 0f..60f, { delay = it }) {
                     prefs.restoreDelay = delay.toInt()
                 }
@@ -235,6 +308,65 @@ fun MainScreen(tick: Int) {
             style = MaterialTheme.typography.bodySmall
         )
 
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Estado", style = MaterialTheme.typography.titleMedium)
+                Text("Servicio: " + if (svcOn) "conectado ✓" else "no conectado ✗")
+                if (dListener.isNotEmpty()) Text("Servicio (último aviso): $dListener", style = MaterialTheme.typography.bodySmall)
+                Text("Canción: " + dTrack.ifEmpty { "—" })
+                Text("Carátula: " + dArt.ifEmpty { "—" })
+                Text("Resultado: " + dResult.ifEmpty { "—" })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { rebindListener(ctx); refresh++ }) { Text("Reconectar") }
+                    TextButton(onClick = { refresh++ }) { Text("Actualizar") }
+                }
+                Text(
+                    "Si dice «no conectado», pulsa Reconectar. Si dice «sin carátula», esa app no entrega la imagen.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Ayuda con los ajustes del teléfono (opcional)", Modifier.weight(1f))
+                    Switch(checked = showHelp, onCheckedChange = { showHelp = it; prefs.showHelp = it })
+                }
+                if (showHelp) {
+                    Text(
+                        "Algunos teléfonos (Tecno, Honor, Xiaomi…) tienen funciones propias que bloquean el fondo de bloqueo o cierran la app. Abre estas pantallas y desactiva lo que estorbe:",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedButton(onClick = { openAppDetails(ctx) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Info de la app (ajustes restringidos)")
+                    }
+                    OutlinedButton(onClick = { openListenerSettings(ctx) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Acceso a notificaciones")
+                    }
+                    OutlinedButton(
+                        onClick = { startSafely(ctx, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Ahorro de batería") }
+                    OutlinedButton(
+                        onClick = { startSafely(ctx, Intent(Settings.ACTION_DISPLAY_SETTINGS)) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Pantalla y fondos") }
+                    OutlinedButton(
+                        onClick = { startSafely(ctx, Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), null)) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Fondos de pantalla del sistema") }
+                    Text(
+                        "• Honor / Huawei: desactiva «Magazine Unlock» y usa un fondo de bloqueo normal.\n" +
+                            "• Tecno / Infinix / itel: permite el inicio automático (Phone Master o Administrador del teléfono), quita el ahorro de batería a MusicPaper y evita temas o fondos de bloqueo propios.\n" +
+                            "• Xiaomi / Redmi / POCO: activa «Inicio automático» y pon «Sin restricciones» en el ahorro de batería.\n" +
+                            "Los nombres cambian según el teléfono.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+
         Text("MusicPaper v$version", style = MaterialTheme.typography.bodySmall)
     }
 
@@ -252,6 +384,7 @@ private fun ArtPositionPreview(
     x: Float,
     y: Float,
     size: Float,
+    circle: Boolean,
     onMove: (Float, Float) -> Unit,
     onDone: () -> Unit
 ) {
@@ -289,7 +422,7 @@ private fun ArtPositionPreview(
                 Modifier
                     .offset { IntOffset(left.toInt(), top.toInt()) }
                     .size(with(density) { side.toDp() })
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(if (circle) CircleShape else RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.primary)
             ) {
                 Text("♪", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onPrimary)
@@ -409,5 +542,37 @@ private fun requestIgnoreBattery(ctx: Context) {
         )
     } catch (e: Exception) {
         ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+}
+
+private fun startSafely(ctx: Context, intent: Intent) {
+    try {
+        ctx.startActivity(intent)
+    } catch (e: Exception) {
+        Toast.makeText(ctx, "Tu teléfono no permite abrir esa pantalla", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun openAppDetails(ctx: Context) {
+    startSafely(ctx, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+}
+
+private fun rebindListener(ctx: Context) {
+    try {
+        NotificationListenerService.requestRebind(ComponentName(ctx, MusicListenerService::class.java))
+    } catch (e: Exception) {
+        // si no hay permiso todavía, no hay nada que reconectar
+    }
+}
+
+private fun openLiveWallpaper(ctx: Context) {
+    val cn = ComponentName(ctx, LiveCdWallpaperService::class.java)
+    try {
+        ctx.startActivity(
+            Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
+                .putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, cn)
+        )
+    } catch (e: Exception) {
+        startSafely(ctx, Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER))
     }
 }
