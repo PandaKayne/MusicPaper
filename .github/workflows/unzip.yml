@@ -2,7 +2,6 @@ name: Descomprimir zip
 on:
   push:
     branches: [main]
-    paths: ['*.zip']
   workflow_dispatch:
 permissions:
   contents: write
@@ -17,7 +16,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          ZIP=$(ls *.zip | head -n 1)
+          ZIP=$(ls *.zip 2>/dev/null | head -n 1 || true)
+          if [ -z "$ZIP" ]; then echo "No hay zip"; exit 0; fi
           mkdir /tmp/x
           unzip -q "$ZIP" -d /tmp/x
           SRC=/tmp/x
