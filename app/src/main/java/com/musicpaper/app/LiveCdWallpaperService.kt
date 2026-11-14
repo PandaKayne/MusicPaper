@@ -92,7 +92,7 @@ class LiveCdWallpaperService : WallpaperService() {
             val ctx = this@LiveCdWallpaperService
             val prefs = Prefs(ctx)
             val art = loadArt(ctx)
-            bg = WallpaperApplier.cdBackground(art, sw, sh)
+            bg = WallpaperApplier.styledBackground(art, sw, sh, prefs)
             val side = (sw * prefs.artSize.coerceIn(30, 100) / 100f).toInt().coerceIn(64, min(sw, sh))
             disc = WallpaperApplier.makeDisc(art, side)
             cx = (sw * prefs.artX.coerceIn(0, 100) / 100f).coerceIn(side / 2f, sw - side / 2f)

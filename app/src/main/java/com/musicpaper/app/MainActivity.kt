@@ -98,6 +98,7 @@ fun MainScreen(tick: Int) {
     var hasRestore by remember { mutableStateOf(WallpaperApplier.hasRestoreImage(ctx)) }
     var showPicker by remember { mutableStateOf(false) }
     var showHelp by remember { mutableStateOf(prefs.showHelp) }
+    var bgBlur by remember { mutableStateOf(prefs.bgBlur) }
     var refresh by remember { mutableIntStateOf(0) }
 
     val listenerOn = remember(tick) {
@@ -219,9 +220,17 @@ fun MainScreen(tick: Int) {
                     }
                 }
 
-                val usesBlur = effect == Prefs.EFFECT_BLUR || effect == Prefs.EFFECT_GLASS
+                val hasBgChoice = effect == Prefs.EFFECT_CD || effect == Prefs.EFFECT_SQUARE || effect == Prefs.EFFECT_CD_SPIN
+                val usesBlur = effect == Prefs.EFFECT_BLUR || effect == Prefs.EFFECT_GLASS || (hasBgChoice && bgBlur)
                 val hasObject = effect != Prefs.EFFECT_COVER && (effect != Prefs.EFFECT_BLUR || showArt)
                 val circle = effect == Prefs.EFFECT_CD || effect == Prefs.EFFECT_CD_SPIN
+
+                if (hasBgChoice) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Fondo desenfocado", Modifier.weight(1f))
+                        Switch(checked = bgBlur, onCheckedChange = { bgBlur = it; prefs.bgBlur = it })
+                    }
+                }
 
                 if (usesBlur) {
                     LabeledSlider("Desenfoque", blur, 0f..100f, { blur = it }) { prefs.blur = blur.toInt() }
@@ -265,7 +274,7 @@ fun MainScreen(tick: Int) {
                     )
                 }
 
-                if (effect == Prefs.EFFECT_BLUR || effect == Prefs.EFFECT_COVER || effect == Prefs.EFFECT_GLASS) {
+                if (effect == Prefs.EFFECT_BLUR || effect == Prefs.EFFECT_COVER || effect == Prefs.EFFECT_GLASS || (hasBgChoice && bgBlur)) {
                     LabeledSlider("Oscurecer", darken, 0f..100f, { darken = it }) { prefs.darken = darken.toInt() }
                 }
                 LabeledSlider("Restaurar tras pausa (s)", delay, 0f..60f, { delay = it }) {

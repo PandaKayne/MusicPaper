@@ -57,6 +57,11 @@ class Prefs(context: Context) {
         sp.edit().putString("diag_$key", value).apply()
     }
 
+    /** CD, Cuadrado y CD giratorio: fondo desenfocado (true) o de color liso (false). */
+    var bgBlur: Boolean
+        get() = sp.getBoolean("bgBlur", true)
+        set(v) { sp.edit().putBoolean("bgBlur", v).apply() }
+
     var blur: Int
         get() = sp.getInt("blur", 80)
         set(v) { sp.edit().putInt("blur", v).apply() }

@@ -216,6 +216,16 @@ object WallpaperApplier {
         return Color.HSVToColor(hsv)
     }
 
+    /** Fondo desenfocado de la carátula, o liso del color de la carátula si se desactiva. */
+    fun styledBackground(art: Bitmap?, w: Int, h: Int, prefs: Prefs): Bitmap {
+        if (art != null && prefs.bgBlur) {
+            var bg = blurred(art, w, h, prefs.blur)
+            if (prefs.darken > 0) bg = darken(bg, prefs.darken)
+            return if (bg.isMutable) bg else bg.copy(Bitmap.Config.ARGB_8888, true)
+        }
+        return cdBackground(art, w, h)
+    }
+
     /** Fondo liso con degradado, del color de la carátula. */
     fun cdBackground(art: Bitmap?, w: Int, h: Int): Bitmap {
         val base = if (art != null) dominantColor(art) else Color.rgb(24, 24, 28)
@@ -287,7 +297,7 @@ object WallpaperApplier {
     }
 
     private fun renderCd(art: Bitmap, w: Int, h: Int, prefs: Prefs): Bitmap {
-        val out = cdBackground(art, w, h)
+        val out = styledBackground(art, w, h, prefs)
         val side = objectSide(w, h, prefs)
         val disc = makeDisc(art, side)
         val (left, top) = placement(w, h, side, side, prefs)
@@ -302,7 +312,7 @@ object WallpaperApplier {
     }
 
     private fun renderSquare(art: Bitmap, w: Int, h: Int, prefs: Prefs): Bitmap {
-        val out = cdBackground(art, w, h)
+        val out = styledBackground(art, w, h, prefs)
         val side = objectSide(w, h, prefs)
         val sq = squareScaled(art, side)
         val (left, top) = placement(w, h, side, side, prefs)
