@@ -159,20 +159,23 @@ class MusicListenerService : NotificationListenerService() {
         }
     }
 
+    /** Reúne todas las imágenes disponibles y se queda con la de mayor resolución. */
     private fun extractArt(md: MediaMetadata): Bitmap? {
-        md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)?.let { return it }
-        md.getBitmap(MediaMetadata.METADATA_KEY_ART)?.let { return it }
-        md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)?.let { return it }
-        val uriKeys = listOf(
+        val candidates = mutableListOf<Bitmap>()
+        listOf(
+            MediaMetadata.METADATA_KEY_ALBUM_ART,
+            MediaMetadata.METADATA_KEY_ART,
+            MediaMetadata.METADATA_KEY_DISPLAY_ICON
+        ).forEach { k -> md.getBitmap(k)?.let { candidates.add(it) } }
+        listOf(
             MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
             MediaMetadata.METADATA_KEY_ART_URI,
             MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI
-        )
-        for (k in uriKeys) {
-            val s = md.getString(k) ?: continue
-            loadUri(s)?.let { return it }
+        ).forEach { k ->
+            val s = md.getString(k)
+            if (s != null) loadUri(s)?.let { candidates.add(it) }
         }
-        return null
+        return candidates.maxByOrNull { it.width.toLong() * it.height }
     }
 
     private fun loadUri(s: String): Bitmap? {

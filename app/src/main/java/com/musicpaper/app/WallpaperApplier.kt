@@ -3,15 +3,20 @@ package com.musicpaper.app
 import android.app.WallpaperManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Matrix
 import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Shader
 import android.net.Uri
 import android.os.Build
 import java.io.File
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.pow
 
 object WallpaperApplier {
@@ -40,14 +45,24 @@ object WallpaperApplier {
         val (w, h) = screenSize(ctx)
         val art = softwareCopy(source)
 
-        var out = if (prefs.effect == Prefs.EFFECT_COVER) {
-            centerCrop(art, w, h)
-        } else {
-            blurred(art, w, h, prefs.blur)
+        val out = when (prefs.effect) {
+            Prefs.EFFECT_COVER -> {
+                val c = centerCrop(art, w, h)
+                if (prefs.darken > 0) darken(c, prefs.darken) else c
+            }
+            Prefs.EFFECT_COMBO -> {
+                // Fondo desenfocado + carátula nítida y grande al centro
+                var bg = blurred(art, w, h, prefs.blur)
+                if (prefs.darken > 0) bg = darken(bg, prefs.darken)
+                withSharpArt(bg, art)
+            }
+            else -> {
+                val b = blurred(art, w, h, prefs.blur)
+                if (prefs.darken > 0) darken(b, prefs.darken) else b
+            }
         }
-        if (prefs.darken > 0) out = darken(out, prefs.darken)
 
-        WallpaperManager.getInstance(ctx).setBitmap(out, null, true, flags(prefs.target))
+        setWallpaper(WallpaperManager.getInstance(ctx), out, prefs.target)
     }
 
     fun restore(ctx: Context) {
@@ -57,12 +72,28 @@ object WallpaperApplier {
         val (w, h) = screenSize(ctx)
         if (file.exists()) {
             val bmp = decodeSampled(file.path, w, h) ?: return
-            wm.setBitmap(centerCrop(bmp, w, h), null, true, flags(prefs.target))
+            setWallpaper(wm, centerCrop(bmp, w, h), prefs.target)
         } else {
             try {
                 wm.clear(flags(prefs.target))
             } catch (e: Exception) {
                 // sin imagen de restauración y sin poder limpiar: no hacemos nada
+            }
+        }
+    }
+
+    /**
+     * Pone el fondo en pantalla principal y/o bloqueo con llamadas separadas.
+     * En capas como MagicOS (Honor) es más fiable que mandar los dos flags juntos.
+     * Primero la principal y al final el bloqueo.
+     */
+    private fun setWallpaper(wm: WallpaperManager, bmp: Bitmap, target: Int) {
+        when (target) {
+            Prefs.TARGET_HOME -> wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_SYSTEM)
+            Prefs.TARGET_LOCK -> wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_LOCK)
+            else -> {
+                wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_SYSTEM)
+                wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_LOCK)
             }
         }
     }
@@ -110,6 +141,44 @@ object WallpaperApplier {
             Paint(Paint.FILTER_BITMAP_FLAG)
         )
         return out
+    }
+
+
+    /** Dibuja la carátula en calidad completa, cuadrada, con esquinas redondeadas y sombra. */
+    private fun withSharpArt(bg: Bitmap, art: Bitmap): Bitmap {
+        val out = if (bg.isMutable) bg else bg.copy(Bitmap.Config.ARGB_8888, true)
+        val w = out.width
+        val h = out.height
+        val side = (min(w, h) * 0.88f).toInt()
+        val sq = squareScaled(art, side)
+        val left = (w - side) / 2f
+        val top = (h - side) / 2f + h * 0.02f
+        val radius = side * 0.05f
+        val rect = RectF(left, top, left + side, top + side)
+        val canvas = Canvas(out)
+
+        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            setShadowLayer(side * 0.04f, 0f, side * 0.015f, Color.argb(150, 0, 0, 0))
+        }
+        canvas.drawRoundRect(rect, radius, radius, shadow)
+
+        val shader = BitmapShader(sq, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+            setLocalMatrix(Matrix().apply { setTranslate(left, top) })
+        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { this.shader = shader }
+        canvas.drawRoundRect(rect, radius, radius, paint)
+        return out
+    }
+
+    /** Recorta al cuadrado central y escala a side x side con la mejor calidad posible. */
+    private fun squareScaled(src: Bitmap, side: Int): Bitmap {
+        val s = min(src.width, src.height)
+        val x = (src.width - s) / 2
+        val y = (src.height - s) / 2
+        val sq = Bitmap.createBitmap(src, x, y, s, s)
+        return if (s > side) downscale(sq, side, side)
+        else Bitmap.createScaledBitmap(sq, side, side, true)
     }
 
     private fun darken(src: Bitmap, percent: Int): Bitmap {

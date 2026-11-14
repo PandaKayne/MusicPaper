@@ -140,7 +140,7 @@ fun MainScreen(tick: Int) {
 
                 Text("Efecto")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Blur" to Prefs.EFFECT_BLUR, "Cover" to Prefs.EFFECT_COVER)
+                    listOf("Blur + álbum" to Prefs.EFFECT_COMBO, "Blur" to Prefs.EFFECT_BLUR, "Cover" to Prefs.EFFECT_COVER)
                         .forEach { (label, value) ->
                             FilterChip(
                                 selected = effect == value,
@@ -150,7 +150,7 @@ fun MainScreen(tick: Int) {
                         }
                 }
 
-                if (effect == Prefs.EFFECT_BLUR) {
+                if (effect != Prefs.EFFECT_COVER) {
                     LabeledSlider("Desenfoque", blur, 0f..100f, { blur = it }) { prefs.blur = blur.toInt() }
                 }
                 LabeledSlider("Oscurecer", darken, 0f..100f, { darken = it }) { prefs.darken = darken.toInt() }

@@ -20,7 +20,7 @@ class Prefs(context: Context) {
         set(v) { sp.edit().putInt("target", v).apply() }
 
     var effect: String
-        get() = sp.getString("effect", EFFECT_BLUR) ?: EFFECT_BLUR
+        get() = sp.getString("effect", EFFECT_COMBO) ?: EFFECT_COMBO
         set(v) { sp.edit().putString("effect", v).apply() }
 
     var blur: Int
@@ -41,5 +41,6 @@ class Prefs(context: Context) {
         const val TARGET_HOME = 2
         const val EFFECT_BLUR = "blur"
         const val EFFECT_COVER = "cover"
+        const val EFFECT_COMBO = "combo"
     }
 }
